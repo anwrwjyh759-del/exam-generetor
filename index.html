@@ -4,107 +4,92 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>مولد الامتحانات</title>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
-body{
-  font-family:'Cairo',sans-serif;
-  background:#0f172a;
-  color:#fff;
-  text-align:center;
-  padding:20px;
-  margin:0;
-}
-.container{
-  max-width:700px;
-  margin:auto;
-  background:#1e293b;
-  padding:25px;
-  border-radius:15px;
-}
-input,button{
-  margin:10px;
-  padding:12px;
-  border:none;
-  border-radius:8px;
-  width:90%;
-  font-size:16px;
-}
-button{
-  background:#25D366;
-  color:white;
-  cursor:pointer;
-  font-weight:bold;
-}
-button:hover{
-  background:#1ebe5d;
-}
-#output,#exam{
-  background:#334155;
-  margin-top:15px;
-  padding:15px;
-  border-radius:10px;
-  text-align:right;
-  min-height:50px;
-  white-space:pre-wrap;
-}
-h1{color:#25D366;}
-p{color:#cbd5e1;}
+  body { font-family: 'Cairo', sans-serif; background: #1a1a2e; color: white; text-align: center; padding: 20px; }
+ .container { max-width: 600px; margin: auto; }
+  button { background: #00ff88; color: black; border: none; padding: 15px 30px; margin: 10px; border-radius: 10px; font-size: 18px; font-weight: bold; cursor: pointer; }
+  button:disabled { background: #555; cursor: not-allowed; }
+  #output, #loading { background: #2e2e4e; padding: 15px; border-radius: 10px; margin-top: 15px; min-height: 50px; white-space: pre-wrap; text-align: right; }
+  input[type="file"] { margin: 20px 0; }
 </style>
+<script src='https://unpkg.com/tesseract.js@v4.0.2/dist/tesseract.min.js'></script>
 </head>
 <body>
-  <div class="container">
-    <h1>مولد الامتحانات</h1>
-    <p>ارفع صورة فيها أسئلة وهيتحول لنص ويتعمل منه امتحان</p>
+<div class="container">
+  <h2>ارفع صورة فيها أسئلة وهيتحول لنص ويتعمل منه امتحان</h2>
 
-    <input type="file" id="imageInput" accept="image/*">
-    <button onclick="readImage()">1. اقرأ الصورة</button>
+  <input type="file" id="fileInput" accept="image/*">
 
-    <div id="output">النص هيظهر هنا...</div>
+  <button id="readBtn">1. اقرأ الصورة</button>
+  <div id="loading" style="display:none;">جاري القراءة... استنى شوية</div>
+  <div id="output">النص هيظهر هنا...</div>
 
-    <button onclick="generateExam()">2. ولّد الامتحان</button>
+  <button id="genBtn" disabled>2. ولّد الامتحان</button>
+  <div id="exam">الامتحان هيظهر هنا...</div>
+</div>
 
-    <div id="exam">الامتحان هيظهر هنا...</div>
-  </div>
+<script>
+const fileInput = document.getElementById('fileInput');
+const readBtn = document.getElementById('readBtn');
+const genBtn = document.getElementById('genBtn');
+const loading = document.getElementById('loading');
+const output = document.getElementById('output');
+const exam = document.getElementById('exam');
 
-  <script>
-    async function readImage() {
-      const file = document.getElementById('imageInput').files[0];
-      if(!file){
-        alert('اختار صورة الأول');
-        return;
-      }
+let extractedText = '';
 
-      document.getElementById('output').innerText = 'جاري القراءة... استنى شوية';
+readBtn.onclick = async () => {
+  const file = fileInput.files[0];
+  if (!file) { alert('اختار صورة الأول'); return; }
 
-      try{
-        const result = await Tesseract.recognize(file, 'ara+eng');
-        document.getElementById('output').innerText = result.data.text;
-      }catch(err){
-        alert('حصل خطأ في القراءة. جرب صورة أوضح');
-        document.getElementById('output').innerText = 'فشل في القراءة';
-      }
+  loading.style.display = 'block';
+  output.innerText = '';
+  readBtn.disabled = true;
+
+  // تنضيف الصورة قبل القراءة
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+
+  img.onload = async () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+
+    // تحويل لأبيض وأسود وزيادة التباين
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+    for (let i = 0; i < data.length; i += 4) {
+      const avg = (data[i] + data[i + 1] + data[i + 2]) / 3;
+      const val = avg > 140? 255 : 0; // لو أغمق من 140 يبقى أسود
+      data[i] = data[i + 1] = data[i + 2] = val;
     }
+    ctx.putImageData(imageData, 0, 0);
 
-    function generateExam() {
-      const text = document.getElementById('output').innerText;
-      if(text == 'النص هيظهر هنا...' || text == 'جاري القراءة... استنى شوية' || text == 'فشل في القراءة'){
-        alert('اقرأ الصورة الأول');
-        return;
-      }
+    // قراءة النص من الصورة المنضفة
+    const worker = await Tesseract.createWorker('ara+eng');
+    const { data: { text } = await worker.recognize(canvas);
+    await worker.terminate();
 
-      const questions = text.split('\n').filter(line => line.trim()!= '');
-      if(questions.length == 0){
-        alert('مفيش نص يتقرأ');
-        return;
-      }
+    extractedText = text.trim();
+    output.innerText = extractedText || 'مقدرتش أقرأ نص من الصورة';
+    loading.style.display = 'none';
+    readBtn.disabled = false;
+    if (extractedText) genBtn.disabled = false;
+  };
+};
 
-      let examHTML = '<h3>الامتحان:</h3>';
-      questions.forEach((q, i) => {
-        examHTML += `<p><b>س${i+1}:</b> ${q}</p>`;
-      });
-
-      document.getElementById('exam').innerHTML = examHTML;
-    }
-  </script>
+genBtn.onclick = () => {
+  if (!extractedText) return;
+  // تقسيم بسيط للأسئلة
+  const questions = extractedText.split(/\n/).filter(line => line.trim().length > 10);
+  let examHTML = '<h3>الامتحان:</h3>';
+  questions.forEach((q, i) => {
+    examHTML += `<p><b>${i + 1}.</b> ${q}</p>`;
+  });
+  exam.innerHTML = examHTML;
+};
+</script>
 </body>
 </html>
